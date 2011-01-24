@@ -11,7 +11,7 @@
  * Copyright 2010, The Dojo Foundation
  * Released under the MIT, BSD, and GPL Licenses.
  *
- * Date: Wed Jan 19 12:40:32 2011 -0500
+ * Date: Mon Jan 24 04:22:46 2011 +0100
  */
 (function( window, undefined ) {
 
@@ -149,7 +149,7 @@ jQuery.fn = jQuery.prototype = {
 
 					} else {
 						ret = jQuery.buildFragment( [ match[1] ], [ doc ] );
-						selector = (ret.cacheable ? jQuery(ret.fragment).clone()[0] : ret.fragment).childNodes;
+						selector = (ret.cacheable ? jQuery.clone(ret.fragment) : ret.fragment).childNodes;
 					}
 
 					return jQuery.merge( this, selector );
@@ -176,13 +176,6 @@ jQuery.fn = jQuery.prototype = {
 					this.selector = selector;
 					return this;
 				}
-
-			// HANDLE: $("TAG")
-			} else if ( !context && !rnonword.test( selector ) ) {
-				this.selector = selector;
-				this.context = document;
-				selector = document.getElementsByTagName( selector );
-				return jQuery.merge( this, selector );
 
 			// HANDLE: $(expr, $(...))
 			} else if ( !context || context.jquery ) {
@@ -273,12 +266,14 @@ jQuery.fn = jQuery.prototype = {
 		return jQuery.each( this, callback, args );
 	},
 
-	ready: function() {
+	ready: function( fn ) {
 		// Attach the listeners
 		jQuery.bindReady();
 
-		// Change ready & apply
-		return ( jQuery.fn.ready = readyList.done ).apply( this , arguments );
+		// Add the callback
+		readyList.done( fn );
+
+		return this;
 	},
 
 	eq: function( i ) {
@@ -425,7 +420,7 @@ jQuery.extend({
 			}
 
 			// If there are functions bound, to execute
-			readyList.fire( document , [ jQuery ] );
+			readyList.resolveWith( document, [ jQuery ] );
 
 			// Trigger any bound ready events
 			if ( jQuery.fn.trigger ) {
@@ -823,7 +818,6 @@ jQuery.extend({
 
 	// Create a simple deferred (one callbacks list)
 	_Deferred: function() {
-
 		var // callbacks list
 			callbacks = [],
 			// stored [ context , args ]
@@ -836,53 +830,45 @@ jQuery.extend({
 			deferred  = {
 
 				// done( f1, f2, ...)
-				done: function () {
-
-					if ( ! cancelled ) {
-
+				done: function() {
+					if ( !cancelled ) {
 						var args = arguments,
 							i,
 							length,
 							elem,
 							type,
 							_fired;
-
 						if ( fired ) {
 							_fired = fired;
 							fired = 0;
 						}
-
-						for ( i = 0, length = args.length ; i < length ; i++ ) {
+						for ( i = 0, length = args.length; i < length; i++ ) {
 							elem = args[ i ];
 							type = jQuery.type( elem );
 							if ( type === "array" ) {
-								deferred.done.apply( deferred , elem );
+								deferred.done.apply( deferred, elem );
 							} else if ( type === "function" ) {
 								callbacks.push( elem );
 							}
 						}
-
 						if ( _fired ) {
-							deferred.fire( _fired[ 0 ] , _fired[ 1 ] );
+							deferred.resolveWith( _fired[ 0 ], _fired[ 1 ] );
 						}
 					}
-
 					return this;
 				},
 
 				// resolve with given context and args
-				fire: function( context , args ) {
-					if ( ! cancelled && ! fired && ! firing ) {
-
+				resolveWith: function( context, args ) {
+					if ( !cancelled && !fired && !firing ) {
 						firing = 1;
-
 						try {
 							while( callbacks[ 0 ] ) {
-								callbacks.shift().apply( context , args );
+								callbacks.shift().apply( context, args );
 							}
 						}
 						finally {
-							fired = [ context , args ];
+							fired = [ context, args ];
 							firing = 0;
 						}
 					}
@@ -891,7 +877,7 @@ jQuery.extend({
 
 				// resolve with this as context and given arguments
 				resolve: function() {
-					deferred.fire( jQuery.isFunction( this.promise ) ? this.promise() : this , arguments );
+					deferred.resolveWith( jQuery.isFunction( this.promise ) ? this.promise() : this, arguments );
 					return this;
 				},
 
@@ -912,28 +898,23 @@ jQuery.extend({
 	},
 
 	// Full fledged deferred (two callbacks list)
-	// Typical success/error system
 	Deferred: function( func ) {
-
 		var deferred = jQuery._Deferred(),
 			failDeferred = jQuery._Deferred(),
 			promise;
-
 		// Add errorDeferred methods, then and promise
-		jQuery.extend( deferred , {
-
-			then: function( doneCallbacks , failCallbacks ) {
+		jQuery.extend( deferred, {
+			then: function( doneCallbacks, failCallbacks ) {
 				deferred.done( doneCallbacks ).fail( failCallbacks );
 				return this;
 			},
 			fail: failDeferred.done,
-			fireReject: failDeferred.fire,
+			rejectWith: failDeferred.resolveWith,
 			reject: failDeferred.resolve,
 			isRejected: failDeferred.isResolved,
 			// Get a promise for this deferred
 			// If obj is provided, the promise aspect is added to the object
-			// (i is used internally)
-			promise: function( obj , i ) {
+			promise: function( obj , i /* internal */ ) {
 				if ( obj == null ) {
 					if ( promise ) {
 						return promise;
@@ -946,20 +927,15 @@ jQuery.extend({
 				}
 				return obj;
 			}
-
 		} );
-
 		// Make sure only one callback list will be used
-		deferred.then( failDeferred.cancel , deferred.cancel );
-
+		deferred.then( failDeferred.cancel, deferred.cancel );
 		// Unexpose cancel
 		delete deferred.cancel;
-
 		// Call given func if any
 		if ( func ) {
-			func.call( deferred , deferred );
+			func.call( deferred, deferred );
 		}
-
 		return deferred;
 	},
 
@@ -976,17 +952,14 @@ jQuery.extend({
 		if ( length > 1 ) {
 			resolveArray = new Array( length );
 			jQuery.each( args, function( index, element, args ) {
-				jQuery.when( element ).done( function( value ) {
+				jQuery.when( element ).then( function( value ) {
 					args = arguments;
-					resolveArray[ index ] = args.length > 1 ? slice.call( args , 0 ) : value;
+					resolveArray[ index ] = args.length > 1 ? slice.call( args, 0 ) : value;
 					if( ! --length ) {
-						deferred.fire( promise, resolveArray );
+						deferred.resolveWith( promise, resolveArray );
 					}
-				}).fail( function() {
-					deferred.fireReject( promise, arguments );
-				});
-				return !deferred.isRejected();
-			});
+				}, deferred.reject );
+			} );
 		} else if ( deferred !== object ) {
 			deferred.resolve( object );
 		}
@@ -1241,10 +1214,16 @@ return (window.jQuery = window.$ = jQuery);
 	// Figure out if the W3C box model works as expected
 	// document.body must exist before we can do this
 	jQuery(function() {
-		var div = document.createElement("div");
-		div.style.width = div.style.paddingLeft = "1px";
+		var div = document.createElement("div"),
+			body = document.getElementsByTagName("body")[0];
 
-		document.body.appendChild( div );
+		// Frameset documents with no body should not run this code
+		if ( !body ) {
+			return;
+		}
+
+		div.style.width = div.style.paddingLeft = "1px";
+		body.appendChild( div );
 		jQuery.boxModel = jQuery.support.boxModel = div.offsetWidth === 2;
 
 		if ( "zoom" in div.style ) {
@@ -1283,7 +1262,7 @@ return (window.jQuery = window.$ = jQuery);
 		jQuery.support.reliableHiddenOffsets = jQuery.support.reliableHiddenOffsets && tds[0].offsetHeight === 0;
 		div.innerHTML = "";
 
-		document.body.removeChild( div ).style.display = "none";
+		body.removeChild( div ).style.display = "none";
 		div = tds = null;
 	});
 
@@ -2105,7 +2084,6 @@ var rnamespaces = /\.(.*)$/,
 	fcleanup = function( nm ) {
 		return nm.replace(rescape, "\\$&");
 	},
-	focusCounts = { focusin: 0, focusout: 0 },
 	eventKey = "events";
 
 /*
@@ -2977,21 +2955,17 @@ if ( document.addEventListener ) {
 	jQuery.each({ focus: "focusin", blur: "focusout" }, function( orig, fix ) {
 		jQuery.event.special[ fix ] = {
 			setup: function() {
-				if ( focusCounts[fix]++ === 0 ) {
-					document.addEventListener( orig, handler, true );
-				}
-			},
-			teardown: function() {
-				if ( --focusCounts[fix] === 0 ) {
-					document.removeEventListener( orig, handler, true );
-				}
+				this.addEventListener( orig, handler, true );
+			}, 
+			teardown: function() { 
+				this.removeEventListener( orig, handler, true );
 			}
 		};
 
 		function handler( e ) {
 			e = jQuery.event.fix( e );
 			e.type = fix;
-			return jQuery.event.trigger( e, null, e.target );
+			return jQuery.event.handle.call( this, e );
 		}
 	});
 }
@@ -4769,7 +4743,7 @@ jQuery.fn.extend({
 
 	add: function( selector, context ) {
 		var set = typeof selector === "string" ?
-				jQuery( selector, context || this.context ) :
+				jQuery( selector, context ) :
 				jQuery.makeArray( selector ),
 			all = jQuery.merge( this.get(), set );
 
@@ -5122,43 +5096,13 @@ jQuery.fn.extend({
 		return this;
 	},
 
-	clone: function( events ) {
-		// Do the clone
-		var ret = this.map(function() {
-			var clone = this.cloneNode(true);
-			if ( !jQuery.support.noCloneEvent && (this.nodeType === 1 || this.nodeType === 11) && !jQuery.isXMLDoc(this) ) {
-				// IE copies events bound via attachEvent when using cloneNode.
-				// Calling detachEvent on the clone will also remove the events
-				// from the original. In order to get around this, we use some
-				// proprietary methods to clear the events. Thanks to MooTools
-				// guys for this hotness.
-
-				// Using Sizzle here is crazy slow, so we use getElementsByTagName
-				// instead
-				var srcElements = this.getElementsByTagName("*"),
-					destElements = clone.getElementsByTagName("*");
-
-				// Weird iteration because IE will replace the length property
-				// with an element if you are cloning the body and one of the
-				// elements on the page has a name or id of "length"
-				for ( var i = 0; srcElements[i]; ++i ) {
-					cloneFixAttributes( srcElements[i], destElements[i] );
-				}
-
-				cloneFixAttributes( this, clone );
-			}
-
-			return clone;
+	clone: function( dataAndEvents, deepDataAndEvents ) {
+		dataAndEvents = dataAndEvents == null ? true : dataAndEvents;
+		deepDataAndEvents = deepDataAndEvents == null ? dataAndEvents : deepDataAndEvents;
+		
+		return this.map( function () {
+			return jQuery.clone( this, dataAndEvents, deepDataAndEvents );
 		});
-
-		// Copy the events from the original to the clone
-		if ( events === true ) {
-			cloneCopyEvent( this, ret );
-			cloneCopyEvent( this.find("*"), ret.find("*") );
-		}
-
-		// Return the cloned set
-		return ret;
 	},
 
 	html: function( value ) {
@@ -5286,7 +5230,7 @@ jQuery.fn.extend({
 							root(this[i], first) :
 							this[i],
 						i > 0 || results.cacheable || (this.length > 1 && i > 0) ?
-							jQuery(fragment).clone(true)[0] :
+							jQuery.clone( fragment, true, true ) :
 							fragment
 					);
 				}
@@ -5308,40 +5252,33 @@ function root( elem, cur ) {
 		elem;
 }
 
-function cloneCopyEvent(orig, ret) {
-	ret.each(function (nodeIndex) {
-		if ( this.nodeType !== 1 || !jQuery.hasData(orig[nodeIndex]) ) {
-			return;
-		}
+function cloneCopyEvent( src, dest ) {
 
-		// XXX remove for 1.5 RC or merge back in if there is actually a reason for this check that has been
-		// unexposed by unit tests
-		if ( this.nodeName !== (orig[nodeIndex] && orig[nodeIndex].nodeName) ) {
-			throw "Cloned data mismatch";
-		}
+	if ( dest.nodeType !== 1 || !jQuery.hasData( src ) ) {
+		return;
+	}
 
-		var internalKey = jQuery.expando,
-			oldData = jQuery.data( orig[nodeIndex] ),
-			curData = jQuery.data( this, oldData );
+	var internalKey = jQuery.expando,
+			oldData = jQuery.data( src ),
+			curData = jQuery.data( dest, oldData );
 
-		// Switch to use the internal data object, if it exists, for the next
-		// stage of data copying
-		if ( (oldData = oldData[ internalKey ]) ) {
-			var events = oldData.events;
-			curData = curData[ internalKey ] = jQuery.extend({}, oldData);
+	// Switch to use the internal data object, if it exists, for the next
+	// stage of data copying
+	if ( (oldData = oldData[ internalKey ]) ) {
+		var events = oldData.events;
+				curData = curData[ internalKey ] = jQuery.extend({}, oldData);
 
-			if ( events ) {
-				delete curData.handle;
-				curData.events = {};
+		if ( events ) {
+			delete curData.handle;
+			curData.events = {};
 
-				for ( var type in events ) {
-					for ( var i = 0, l = events[ type ].length; i < l; i++ ) {
-						jQuery.event.add( this, type, events[ type ][ i ], events[ type ][ i ].data );
-					}
+			for ( var type in events ) {
+				for ( var i = 0, l = events[ type ].length; i < l; i++ ) {
+					jQuery.event.add( dest, type, events[ type ][ i ], events[ type ][ i ].data );
 				}
 			}
 		}
-	});
+	}
 }
 
 function cloneFixAttributes(src, dest) {
@@ -5459,6 +5396,54 @@ jQuery.each({
 });
 
 jQuery.extend({
+	clone: function( elem, dataAndEvents, deepDataAndEvents ) {
+		var clone = elem.cloneNode(true), 
+				srcElements, 
+				destElements, 
+				i;
+
+		if ( !jQuery.support.noCloneEvent && (elem.nodeType === 1 || elem.nodeType === 11) && !jQuery.isXMLDoc(elem) ) {
+			// IE copies events bound via attachEvent when using cloneNode.
+			// Calling detachEvent on the clone will also remove the events
+			// from the original. In order to get around this, we use some
+			// proprietary methods to clear the events. Thanks to MooTools
+			// guys for this hotness.
+
+			// Using Sizzle here is crazy slow, so we use getElementsByTagName
+			// instead
+			srcElements = elem.getElementsByTagName("*");
+			destElements = clone.getElementsByTagName("*");
+
+			// Weird iteration because IE will replace the length property
+			// with an element if you are cloning the body and one of the
+			// elements on the page has a name or id of "length"
+			for ( i = 0; srcElements[i]; ++i ) {
+				cloneFixAttributes( srcElements[i], destElements[i] );
+			}
+
+			cloneFixAttributes( elem, clone );
+		}
+
+		// Copy the events from the original to the clone
+		if ( dataAndEvents ) {
+
+			cloneCopyEvent( elem, clone );
+
+			if ( deepDataAndEvents && "getElementsByTagName" in elem ) {
+
+				srcElements = elem.getElementsByTagName("*");
+				destElements = clone.getElementsByTagName("*");
+
+				if ( srcElements.length ) {
+					for ( i = 0; srcElements[i]; ++i ) {
+						cloneCopyEvent( srcElements[i], destElements[i] );
+					}
+				}
+			}
+		}
+		// Return the cloned set
+		return clone;
+  },
 	clean: function( elems, context, fragment, scripts ) {
 		context = context || document;
 
@@ -5955,6 +5940,7 @@ if ( jQuery.expr && jQuery.expr.filters ) {
 
 var r20 = /%20/g,
 	rbracket = /\[\]$/,
+	rCRLF = /\r?\n/g,
 	rhash = /#.*$/,
 	rheaders = /^(.*?):\s*(.*?)\r?$/mg, // IE leaves an \r character at EOL
 	rinput = /^(?:color|date|datetime|email|hidden|month|number|password|range|search|tel|text|time|url|week)$/i,
@@ -5962,15 +5948,109 @@ var r20 = /%20/g,
 	rquery = /\?/,
 	rscript = /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
 	rselectTextarea = /^(?:select|textarea)/i,
+	rspacesAjax = /\s+/,
 	rts = /([?&])_=[^&]*/,
 	rurl = /^(\w+:)?\/\/([^\/?#:]+)(?::(\d+))?/,
-	rCRLF = /\r?\n/g,
 
 	// Slice function
 	sliceFunc = Array.prototype.slice,
 
 	// Keep a copy of the old load method
-	_load = jQuery.fn.load;
+	_load = jQuery.fn.load,
+
+	/* Prefilters
+	 * 1) They are useful to introduce custom dataTypes (see ajax/jsonp.js for an example)
+	 * 2) These are called:
+	 *    - BEFORE asking for a transport
+	 *    - AFTER param serialization (s.data is a string if s.processData is true)
+	 * 3) key is the dataType
+	 * 4) the catchall symbol "*" can be used
+	 * 5) execution will start with transport dataType and THEN continue down to "*" if needed
+	 */
+	prefilters = {},
+
+	/* Transports bindings
+	 * 1) key is the dataType
+	 * 2) the catchall symbol "*" can be used
+	 * 3) selection will start with transport dataType and THEN go to "*" if needed
+	 */
+	transports = {};
+
+// Base "constructor" for jQuery.ajaxPrefilter and jQuery.ajaxTransport
+function addToPrefiltersOrTransports( structure ) {
+
+	// dataTypeExpression is optional and defaults to "*"
+	return function( dataTypeExpression, func ) {
+
+		if ( typeof dataTypeExpression !== "string" ) {
+			func = dataTypeExpression;
+			dataTypeExpression = "*";
+		}
+
+		if ( jQuery.isFunction( func ) ) {
+			var dataTypes = dataTypeExpression.split( rspacesAjax ),
+				i = 0,
+				length = dataTypes.length,
+				dataType,
+				list,
+				placeBefore;
+
+			// For each dataType in the dataTypeExpression
+			for(; i < length; i++ ) {
+				dataType = dataTypes[ i ];
+				// We control if we're asked to add before
+				// any existing element
+				placeBefore = /^\+/.test( dataType );
+				if ( placeBefore ) {
+					dataType = dataType.substr( 1 );
+				}
+				list = structure[ dataType ] = structure[ dataType ] || [];
+				// then we add to the structure accordingly
+				list[ placeBefore ? "unshift" : "push" ]( func );
+			}
+		}
+	};
+}
+
+//Base inspection function for prefilters and transports
+function inspectPrefiltersOrTransports( structure, options, originalOptions,
+		dataType /* internal */, inspected /* internal */ ) {
+
+	dataType = dataType || options.dataTypes[ 0 ];
+	inspected = inspected || {};
+
+	inspected[ dataType ] = true;
+
+	var list = structure[ dataType ],
+		i = 0,
+		length = list ? list.length : 0,
+		executeOnly = ( structure === prefilters ),
+		selection;
+
+	for(; i < length && ( executeOnly || !selection ); i++ ) {
+		selection = list[ i ]( options, originalOptions );
+		// If we got redirected to another dataType
+		// we try there if not done already
+		if ( typeof selection === "string" ) {
+			if ( inspected[ selection ] ) {
+				selection = undefined;
+			} else {
+				options.dataTypes.unshift( selection );
+				selection = inspectPrefiltersOrTransports(
+						structure, options, originalOptions, selection, inspected );
+			}
+		}
+	}
+	// If we're only executing or nothing was selected
+	// we try the catchall dataType if not done already
+	if ( ( executeOnly || !selection ) && !inspected[ "*" ] ) {
+		selection = inspectPrefiltersOrTransports(
+				structure, options, originalOptions, "*", inspected );
+	}
+	// unnecessary when only executing (prefilters)
+	// but it'll be ignored by the caller in that case
+	return selection;
+}
 
 jQuery.fn.extend({
 	load: function( url, params, callback ) {
@@ -5982,10 +6062,10 @@ jQuery.fn.extend({
 			return this;
 		}
 
-		var off = url.indexOf(" ");
+		var off = url.indexOf( " " );
 		if ( off >= 0 ) {
-			var selector = url.slice(off, url.length);
-			url = url.slice(0, off);
+			var selector = url.slice( off, url.length );
+			url = url.slice( 0, off );
 		}
 
 		// Default to a GET request
@@ -6041,7 +6121,7 @@ jQuery.fn.extend({
 				}
 
 				if ( callback ) {
-					self.each( callback, [responseText, status, jXHR] );
+					self.each( callback, [ responseText, status, jXHR ] );
 				}
 			}
 		});
@@ -6050,42 +6130,42 @@ jQuery.fn.extend({
 	},
 
 	serialize: function() {
-		return jQuery.param(this.serializeArray());
+		return jQuery.param( this.serializeArray() );
 	},
 
 	serializeArray: function() {
 		return this.map(function(){
-			return this.elements ? jQuery.makeArray(this.elements) : this;
+			return this.elements ? jQuery.makeArray( this.elements ) : this;
 		})
 		.filter(function(){
 			return this.name && !this.disabled &&
-				(this.checked || rselectTextarea.test(this.nodeName) ||
-					rinput.test(this.type));
+				( this.checked || rselectTextarea.test( this.nodeName ) ||
+					rinput.test( this.type ) );
 		})
-		.map(function(i, elem){
-			var val = jQuery(this).val();
+		.map(function( i, elem ){
+			var val = jQuery( this ).val();
 
 			return val == null ?
 				null :
-				jQuery.isArray(val) ?
-					jQuery.map( val, function(val, i){
-						return { name: elem.name, value: val.replace(rCRLF, "\r\n") };
+				jQuery.isArray( val ) ?
+					jQuery.map( val, function( val, i ){
+						return { name: elem.name, value: val.replace( rCRLF, "\r\n" ) };
 					}) :
-					{ name: elem.name, value: val.replace(rCRLF, "\r\n") };
+					{ name: elem.name, value: val.replace( rCRLF, "\r\n" ) };
 		}).get();
 	}
 });
 
 // Attach a bunch of functions for handling common AJAX events
-jQuery.each( "ajaxStart ajaxStop ajaxComplete ajaxError ajaxSuccess ajaxSend".split(" "), function(i,o){
-	jQuery.fn[o] = function(f){
-		return this.bind(o, f);
+jQuery.each( "ajaxStart ajaxStop ajaxComplete ajaxError ajaxSuccess ajaxSend".split( " " ), function( i, o ){
+	jQuery.fn[ o ] = function( f ){
+		return this.bind( o, f );
 	};
-});
+} );
 
 jQuery.each( [ "get", "post" ], function( i, method ) {
 	jQuery[ method ] = function( url, data, callback, type ) {
-		// shift arguments if data argument was omited
+		// shift arguments if data argument was omitted
 		if ( jQuery.isFunction( data ) ) {
 			type = type || callback;
 			callback = data;
@@ -6100,21 +6180,23 @@ jQuery.each( [ "get", "post" ], function( i, method ) {
 			dataType: type
 		});
 	};
-});
+} );
 
 jQuery.extend({
 
 	getScript: function( url, callback ) {
-		return jQuery.get(url, null, callback, "script");
+		return jQuery.get( url, null, callback, "script" );
 	},
 
 	getJSON: function( url, data, callback ) {
-		return jQuery.get(url, data, callback, "json");
+		return jQuery.get( url, data, callback, "json" );
 	},
 
 	ajaxSetup: function( settings ) {
 		jQuery.extend( true, jQuery.ajaxSettings, settings );
-		return this;
+		if ( settings.context ) {
+			jQuery.ajaxSettings.context = settings.context;
+		}
 	},
 
 	ajaxSettings: {
@@ -6135,9 +6217,6 @@ jQuery.extend({
 		headers: {},
 		crossDomain: null,
 		*/
-		xhr: function() {
-			return new window.XMLHttpRequest();
-		},
 
 		accepts: {
 			xml: "application/xml, text/xml",
@@ -6153,21 +6232,10 @@ jQuery.extend({
 			json: /json/
 		},
 
-		// Prefilters
-		// 1) They are useful to introduce custom dataTypes (see transport/jsonp for an example)
-		// 2) These are called:
-		//    * BEFORE asking for a transport
-		//    * AFTER param serialization (s.data is a string if s.processData is true)
-		// 3) key is the dataType
-		// 4) the catchall symbol "*" can be used
-		// 5) execution will start with transport dataType and THEN continue down to "*" if needed
-		prefilters: {},
-
-		// Transports bindings
-		// 1) key is the dataType
-		// 2) the catchall symbol "*" can be used
-		// 3) selection will start with transport dataType and THEN go to "*" if needed
-		transports: {},
+		responseFields: {
+			xml: "responseXML",
+			text: "responseText"
+		},
 
 		// List of data converters
 		// 1) key format is "source_type destination_type" (a single space in-between)
@@ -6188,35 +6256,31 @@ jQuery.extend({
 		}
 	},
 
-	// Main method
-	// (s is used internally)
-	ajax: function( url , options , s ) {
+	ajaxPrefilter: addToPrefiltersOrTransports( prefilters ),
+	ajaxTransport: addToPrefiltersOrTransports( transports ),
 
-		// Handle varargs
-		if ( arguments.length === 1 ) {
+	// Main method
+	ajax: function( url, options ) {
+
+		// If options is not an object,
+		// we simulate pre-1.5 signature
+		if ( typeof options !== "object" ) {
 			options = url;
-			url = options ? options.url : undefined;
+			url = undefined;
 		}
 
 		// Force options to be an object
 		options = options || {};
 
-		// Get the url if provided separately
-		options.url = url || options.url;
-
-		// Create the final options object
-		s = jQuery.extend( true , {} , jQuery.ajaxSettings , options );
-
-		// We force the original context
-		// (plain objects used as context get extended)
-		s.context = options.context;
-
-		var // jQuery lists
-			jQuery_lastModified = jQuery.lastModified,
-			jQuery_etag = jQuery.etag,
+		var // Create the final options object
+			s = jQuery.extend( true, {}, jQuery.ajaxSettings, options ),
 			// Callbacks contexts
-			callbackContext = s.context || s,
-			globalEventContext = s.context ? jQuery( s.context ) : jQuery.event,
+			// We force the original context if it exists
+			// or take it from jQuery.ajaxSettings otherwise
+			// (plain objects used as context get extended)
+			callbackContext =
+				( s.context = ( "context" in options ? options : jQuery.ajaxSettings ).context ) || s,
+			globalEventContext = callbackContext === s ? jQuery.event : jQuery( callbackContext ),
 			// Deferreds
 			deferred = jQuery.Deferred(),
 			completeDeferred = jQuery._Deferred(),
@@ -6233,6 +6297,7 @@ jQuery.extend({
 			timeoutTimer,
 			// Cross-domain detection vars
 			loc = document.location,
+			protocol = loc.protocol || "http:",
 			parts,
 			// The jXHR state
 			state = 0,
@@ -6244,7 +6309,7 @@ jQuery.extend({
 				readyState: 0,
 
 				// Caches the header
-				setRequestHeader: function(name,value) {
+				setRequestHeader: function( name, value ) {
 					if ( state === 0 ) {
 						requestHeaders[ name.toLowerCase() ] = value;
 					}
@@ -6257,30 +6322,18 @@ jQuery.extend({
 				},
 
 				// Builds headers hashtable if needed
-				// (match is used internally)
-				getResponseHeader: function( key , match ) {
-
+				getResponseHeader: function( key ) {
+					var match;
 					if ( state === 2 ) {
-
-						if ( responseHeaders === undefined ) {
-
+						if ( !responseHeaders ) {
 							responseHeaders = {};
-
-							if ( typeof responseHeadersString === "string" ) {
-
-								while( ( match = rheaders.exec( responseHeadersString ) ) ) {
-									responseHeaders[ match[ 1 ].toLowerCase() ] = match[ 2 ];
-								}
+							while( ( match = rheaders.exec( responseHeadersString ) ) ) {
+								responseHeaders[ match[1].toLowerCase() ] = match[ 2 ];
 							}
 						}
 						match = responseHeaders[ key.toLowerCase() ];
-
-					} else {
-
-						match = null;
 					}
-
-					return match;
+					return match || null;
 				},
 
 				// Cancel the request
@@ -6288,7 +6341,7 @@ jQuery.extend({
 					if ( transport ) {
 						transport.abort( statusText || "abort" );
 					}
-					done( 0 , statusText );
+					done( 0, statusText );
 					return this;
 				}
 			};
@@ -6296,7 +6349,7 @@ jQuery.extend({
 		// Callback for when everything is done
 		// It is defined here because jslint complains if it is declared
 		// at the end of the function (which would be more logical and readable)
-		function done( status , statusText , response , headers) {
+		function done( status, statusText, responses, headers) {
 
 			// Called once
 			if ( state === 2 ) {
@@ -6306,32 +6359,27 @@ jQuery.extend({
 			// State is "done" now
 			state = 2;
 
-			// Dereference transport for early garbage collection
-			// (no matter how long the jXHR transport will be used
-			transport = 0;
+			// Clear timeout if it exists
+			if ( timeoutTimer ) {
+				clearTimeout( timeoutTimer );
+			}
 
-			// Set readyState
-			jXHR.readyState = status ? 4 : 0;
+			// Dereference transport for early garbage collection
+			// (no matter how long the jXHR object will be used)
+			transport = undefined;
 
 			// Cache response headers
 			responseHeadersString = headers || "";
 
-			// Clear timeout if it exists
-			if ( timeoutTimer ) {
-				clearTimeout(timeoutTimer);
-			}
+			// Set readyState
+			jXHR.readyState = status ? 4 : 0;
 
-			var // Reference url
-				url = s.url,
-				// and ifModified status
-				ifModified = s.ifModified,
-
-				// Is it a success?
-				isSuccess = 0,
-				// Stored success
+			var isSuccess,
 				success,
-				// Stored error
-				error;
+				error = ( statusText = statusText || "error" ),
+				response = responses ? ajaxHandleResponses( s, jXHR, responses ) : undefined,
+				lastModified,
+				etag;
 
 			// If successful, handle type chaining
 			if ( status >= 200 && status < 300 || status === 304 ) {
@@ -6339,140 +6387,33 @@ jQuery.extend({
 				// Set the If-Modified-Since and/or If-None-Match header, if in ifModified mode.
 				if ( s.ifModified ) {
 
-					var lastModified = jXHR.getResponseHeader("Last-Modified"),
-						etag = jXHR.getResponseHeader("Etag");
-
-					if (lastModified) {
-						jQuery_lastModified[ s.url ] = lastModified;
+					if ( ( lastModified = jXHR.getResponseHeader( "Last-Modified" ) ) ) {
+						jQuery.lastModified[ s.url ] = lastModified;
 					}
-					if (etag) {
-						jQuery_etag[ s.url ] = etag;
+					if ( ( etag = jXHR.getResponseHeader( "Etag" ) ) ) {
+						jQuery.etag[ s.url ] = etag;
 					}
 				}
 
 				// If not modified
 				if ( status === 304 ) {
 
-					// Set the statusText accordingly
 					statusText = "notmodified";
-					// Mark as a success
-					isSuccess = 1;
+					isSuccess = true;
 
 				// If we have data
 				} else {
 
-					// Set the statusText accordingly
-					statusText = "success";
-
-					// Chain data conversions and determine the final value
-					// (if an exception is thrown in the process, it'll be notified as an error)
 					try {
-
-						var i,
-							// Current dataType
-							current,
-							// Previous dataType
-							prev,
-							// Conversion function
-							conv,
-							// Conversion functions (when text is used in-between)
-							conv1,
-							conv2,
-							// Local references to dataTypes & converters
-							dataTypes = s.dataTypes,
-							converters = s.converters,
-							// DataType to responseXXX field mapping
-							responses = {
-								"xml": "XML",
-								"text": "Text"
-							};
-
-						// For each dataType in the chain
-						for( i = 0 ; i < dataTypes.length ; i++ ) {
-
-							current = dataTypes[ i ];
-
-							// If a responseXXX field for this dataType exists
-							// and if it hasn't been set yet
-							if ( responses[ current ] ) {
-								// Set it
-								jXHR[ "response" + responses[ current ] ] = response;
-								// Mark it as set
-								responses[ current ] = 0;
-							}
-
-							// If this is not the first element
-							if ( i ) {
-
-								// Get the dataType to convert from
-								prev = dataTypes[ i - 1 ];
-
-								// If no catch-all and dataTypes are actually different
-								if ( prev !== "*" && current !== "*" && prev !== current ) {
-
-									// Get the converter
-									conv = converters[ prev + " " + current ] ||
-										converters[ "* " + current ];
-
-									conv1 = conv2 = 0;
-
-									// If there is no direct converter and none of the dataTypes is text
-									if ( ! conv && prev !== "text" && current !== "text" ) {
-										// Try with text in-between
-										conv1 = converters[ prev + " text" ] || converters[ "* text" ];
-										conv2 = converters[ "text " + current ];
-										// Revert back to a single converter
-										// if one of the converter is an equivalence
-										if ( conv1 === true ) {
-											conv = conv2;
-										} else if ( conv2 === true ) {
-											conv = conv1;
-										}
-									}
-									// If we found no converter, dispatch an error
-									if ( ! ( conv || conv1 && conv2 ) ) {
-										throw conversion;
-									}
-									// If found converter is not an equivalence
-									if ( conv !== true ) {
-										// Convert with 1 or 2 converters accordingly
-										response = conv ? conv( response ) : conv2( conv1( response ) );
-									}
-								}
-							// If it is the first element of the chain
-							// and we have a dataFilter
-							} else if ( s.dataFilter ) {
-								// Apply the dataFilter
-								response = s.dataFilter( response , current );
-								// Get dataTypes again in case the filter changed them
-								dataTypes = s.dataTypes;
-							}
-						}
-						// End of loop
-
-						// We have a real success
-						success = response;
-						isSuccess = 1;
-
-					// If an exception was thrown
+						success = ajaxConvert( s, response );
+						statusText = "success";
+						isSuccess = true;
 					} catch(e) {
-
 						// We have a parsererror
 						statusText = "parsererror";
 						error = "" + e;
-
 					}
 				}
-
-			// if not success, mark it as an error
-			} else {
-
-					error = statusText = statusText || "error";
-
-					// Set responseText if needed
-					if ( response ) {
-						jXHR.responseText = response;
-					}
 			}
 
 			// Set data for the fake xhr object
@@ -6481,26 +6422,27 @@ jQuery.extend({
 
 			// Success/Error
 			if ( isSuccess ) {
-				deferred.fire( callbackContext , [ success , statusText , jXHR ] );
+				deferred.resolveWith( callbackContext, [ success, statusText, jXHR ] );
 			} else {
-				deferred.fireReject( callbackContext , [ jXHR , statusText , error ] );
+				deferred.rejectWith( callbackContext, [ jXHR, statusText, error ] );
 			}
 
 			// Status-dependent callbacks
 			jXHR.statusCode( statusCode );
+			statusCode = undefined;
 
 			if ( s.global ) {
-				globalEventContext.trigger( "ajax" + ( isSuccess ? "Success" : "Error" ) ,
-						[ jXHR , s , isSuccess ? success : error ] );
+				globalEventContext.trigger( "ajax" + ( isSuccess ? "Success" : "Error" ),
+						[ jXHR, s, isSuccess ? success : error ] );
 			}
 
 			// Complete
-			completeDeferred.fire( callbackContext, [ jXHR , statusText ] );
+			completeDeferred.resolveWith( callbackContext, [ jXHR, statusText ] );
 
 			if ( s.global ) {
-				globalEventContext.trigger( "ajaxComplete" , [ jXHR , s] );
+				globalEventContext.trigger( "ajaxComplete", [ jXHR, s] );
 				// Handle the global AJAX counter
-				if ( ! --jQuery.active ) {
+				if ( !( --jQuery.active ) ) {
 					jQuery.event.trigger( "ajaxStop" );
 				}
 			}
@@ -6515,55 +6457,51 @@ jQuery.extend({
 		// Status-dependent callbacks
 		jXHR.statusCode = function( map ) {
 			if ( map ) {
-				var resolved = jXHR.isResolved(),
-					tmp;
-				if ( resolved || jXHR.isRejected() ) {
-					tmp = map[ jXHR.status ];
-					if ( tmp ) {
-						if ( map === statusCode ) {
-							delete statusCode[ jXHR.status ];
-						}
-						jXHR[ resolved ? "done" : "fail" ]( tmp );
+				var tmp;
+				if ( state < 2 ) {
+					for( tmp in map ) {
+						statusCode[ tmp ] = [ statusCode[tmp], map[tmp] ];
 					}
 				} else {
-					for( tmp in map ) {
-						statusCode[ tmp ] = [ statusCode[ tmp ] , map[ tmp ] ];
-					}
+					tmp = map[ jXHR.status ];
+					jXHR.then( tmp, tmp );
 				}
 			}
 			return this;
 		};
 
 		// Remove hash character (#7531: and string promotion)
-		s.url = ( "" + s.url ).replace( rhash , "" );
+		// We also use the url parameter if available
+		s.url = ( "" + ( url || s.url ) ).replace( rhash, "" );
 
 		// Extract dataTypes list
-		s.dataTypes = jQuery.trim( s.dataType || "*" ).toLowerCase().split( /\s+/ );
+		s.dataTypes = jQuery.trim( s.dataType || "*" ).toLowerCase().split( rspacesAjax );
 
 		// Determine if a cross-domain request is in order
-		if ( ! s.crossDomain ) {
+		if ( !s.crossDomain ) {
 			parts = rurl.exec( s.url.toLowerCase() );
 			s.crossDomain = !!(
 					parts &&
-					( parts[ 1 ] && parts[ 1 ] != loc.protocol ||
+					( parts[ 1 ] && parts[ 1 ] != protocol ||
 						parts[ 2 ] != loc.hostname ||
-						( parts[ 3 ] || 80 ) != ( loc.port || 80 ) )
+						( parts[ 3 ] || ( ( parts[ 1 ] || protocol ) === "http:" ? 80 : 443 ) ) !=
+							( loc.port || ( protocol === "http:" ? 80 : 443 ) ) )
 			);
 		}
 
 		// Convert data if not already a string
 		if ( s.data && s.processData && typeof s.data !== "string" ) {
-			s.data = jQuery.param( s.data , s.traditional );
+			s.data = jQuery.param( s.data, s.traditional );
 		}
 
 		// Apply prefilters
-		jQuery.ajaxPrefilter( s , options );
+		inspectPrefiltersOrTransports( prefilters, s, options );
 
 		// Uppercase the type
 		s.type = s.type.toUpperCase();
 
 		// Determine if request has content
-		s.hasContent = ! rnoContent.test( s.type );
+		s.hasContent = !rnoContent.test( s.type );
 
 		// Watch for a new set of requests
 		if ( s.global && jQuery.active++ === 0 ) {
@@ -6571,7 +6509,7 @@ jQuery.extend({
 		}
 
 		// More options handling for requests with no content
-		if ( ! s.hasContent ) {
+		if ( !s.hasContent ) {
 
 			// If data is available, append data to url
 			if ( s.data ) {
@@ -6583,10 +6521,10 @@ jQuery.extend({
 
 				var ts = jQuery.now(),
 					// try replacing _= if it is there
-					ret = s.url.replace( rts , "$1_=" + ts );
+					ret = s.url.replace( rts, "$1_=" + ts );
 
 				// if nothing was replaced, add timestamp to the end
-				s.url = ret + ( (ret == s.url ) ? ( rquery.test( s.url ) ? "&" : "?" ) + "_=" + ts : "");
+				s.url = ret + ( (ret === s.url ) ? ( rquery.test( s.url ) ? "&" : "?" ) + "_=" + ts : "" );
 			}
 		}
 
@@ -6597,17 +6535,17 @@ jQuery.extend({
 
 		// Set the If-Modified-Since and/or If-None-Match header, if in ifModified mode.
 		if ( s.ifModified ) {
-			if ( jQuery_lastModified[ s.url ] ) {
-				requestHeaders[ "if-modified-since" ] = jQuery_lastModified[ s.url ];
+			if ( jQuery.lastModified[ s.url ] ) {
+				requestHeaders[ "if-modified-since" ] = jQuery.lastModified[ s.url ];
 			}
-			if ( jQuery_etag[ s.url ] ) {
-				requestHeaders[ "if-none-match" ] = jQuery_etag[ s.url ];
+			if ( jQuery.etag[ s.url ] ) {
+				requestHeaders[ "if-none-match" ] = jQuery.etag[ s.url ];
 			}
 		}
 
 		// Set the Accepts header for the server, depending on the dataType
-		requestHeaders.accept = s.dataTypes[ 0 ] && s.accepts[ s.dataTypes[ 0 ] ] ?
-			s.accepts[ s.dataTypes[ 0 ] ] + ( s.dataTypes[ 0 ] !== "*" ? ", */*; q=0.01" : "" ) :
+		requestHeaders.accept = s.dataTypes[ 0 ] && s.accepts[ s.dataTypes[0] ] ?
+			s.accepts[ s.dataTypes[0] ] + ( s.dataTypes[ 0 ] !== "*" ? ", */*; q=0.01" : "" ) :
 			s.accepts[ "*" ];
 
 		// Check for headers option
@@ -6616,64 +6554,53 @@ jQuery.extend({
 		}
 
 		// Allow custom headers/mimetypes and early abort
-		if ( s.beforeSend && ( s.beforeSend.call( callbackContext , jXHR , s ) === false || state === 2 ) ) {
-
+		if ( s.beforeSend && ( s.beforeSend.call( callbackContext, jXHR, s ) === false || state === 2 ) ) {
 				// Abort if not done already
-				done( 0 , "abort" );
-
+				done( 0, "abort" );
 				// Return false
 				jXHR = false;
 
 		} else {
 
 			// Install callbacks on deferreds
-			for ( i in { success:1, error:1, complete:1 } ) {
+			for ( i in { success: 1, error: 1, complete: 1 } ) {
 				jXHR[ i ]( s[ i ] );
 			}
 
 			// Get transport
-			transport = jQuery.ajaxTransport( s );
+			transport = inspectPrefiltersOrTransports( transports, s, options );
 
 			// If no transport, we auto-abort
-			if ( ! transport ) {
-
-				done( 0 , "notransport" );
-
+			if ( !transport ) {
+				done( 0, "notransport" );
 			} else {
-
 				// Set state as sending
 				state = jXHR.readyState = 1;
-
 				// Send global event
 				if ( s.global ) {
-					globalEventContext.trigger( "ajaxSend" , [ jXHR , s ] );
+					globalEventContext.trigger( "ajaxSend", [ jXHR, s ] );
 				}
-
 				// Timeout
 				if ( s.async && s.timeout > 0 ) {
-					timeoutTimer = setTimeout(function(){
+					timeoutTimer = setTimeout( function(){
 						jXHR.abort( "timeout" );
-					}, s.timeout);
+					}, s.timeout );
 				}
 
-				// Try to send
 				try {
-					transport.send(requestHeaders, done);
+					transport.send( requestHeaders, done );
 				} catch (e) {
 					// Propagate exception as error if not done
 					if ( status === 1 ) {
-
-						done(0, "error", "" + e);
+						done( 0, "error", "" + e );
 						jXHR = false;
-
 					// Simply rethrow otherwise
 					} else {
-						jQuery.error(e);
+						jQuery.error( e );
 					}
 				}
 			}
 		}
-
 		return jXHR;
 	},
 
@@ -6683,8 +6610,8 @@ jQuery.extend({
 		var s = [],
 			add = function( key, value ) {
 				// If value is a function, invoke it and return its value
-				value = jQuery.isFunction(value) ? value() : value;
-				s[ s.length ] = encodeURIComponent(key) + "=" + encodeURIComponent(value);
+				value = jQuery.isFunction( value ) ? value() : value;
+				s[ s.length ] = encodeURIComponent( key ) + "=" + encodeURIComponent( value );
 			};
 
 		// Set traditional to true for jQuery <= 1.3.2 behavior.
@@ -6693,27 +6620,27 @@ jQuery.extend({
 		}
 
 		// If an array was passed in, assume that it is an array of form elements.
-		if ( jQuery.isArray(a) || a.jquery ) {
+		if ( jQuery.isArray( a ) || a.jquery ) {
 			// Serialize the form elements
 			jQuery.each( a, function() {
 				add( this.name, this.value );
-			});
+			} );
 
 		} else {
 			// If traditional, encode the "old" way (the way 1.3.2 or older
 			// did it), otherwise encode params recursively.
 			for ( var prefix in a ) {
-				buildParams( prefix, a[prefix], traditional, add );
+				buildParams( prefix, a[ prefix ], traditional, add );
 			}
 		}
 
 		// Return the resulting serialization
-		return s.join("&").replace(r20, "+");
+		return s.join( "&" ).replace( r20, "+" );
 	}
 });
 
 function buildParams( prefix, obj, traditional, add ) {
-	if ( jQuery.isArray(obj) && obj.length ) {
+	if ( jQuery.isArray( obj ) && obj.length ) {
 		// Serialize array item.
 		jQuery.each( obj, function( i, v ) {
 			if ( traditional || rbracket.test( prefix ) ) {
@@ -6764,200 +6691,148 @@ jQuery.extend({
 
 });
 
-//Execute or select from functions in a given structure of options
-function ajax_selectOrExecute( structure , s ) {
-
-	var dataTypes = s.dataTypes,
-		transportDataType,
-		list,
-		selected,
-		i,
-		length,
-		checked = {},
-		flag,
-		noSelect = structure !== "transports";
-
-	function initSearch( dataType ) {
-
-		flag = transportDataType !== dataType && ! checked[ dataType ];
-
-		if ( flag ) {
-
-			checked[ dataType ] = 1;
-			transportDataType = dataType;
-			list = s[ structure ][ dataType ];
-			i = -1;
-			length = list ? list.length : 0 ;
-		}
-
-		return flag;
-	}
-
-	initSearch( dataTypes[ 0 ] );
-
-	for ( i = 0 ; ( noSelect || ! selected ) && i <= length ; i++ ) {
-
-		if ( i === length ) {
-
-			initSearch( "*" );
-
-		} else {
-
-			selected = list[ i ]( s , determineDataType );
-
-			// If we got redirected to another dataType
-			// Search there (if not in progress or already tried)
-			if ( typeof( selected ) === "string" &&
-				initSearch( selected ) ) {
-
-				dataTypes.unshift( selected );
-				selected = 0;
-			}
-		}
-	}
-
-	return noSelect ? jQuery : selected;
-}
-
-// Add an element to one of the structures in ajaxSettings
-function ajax_addElement( structure , args ) {
-
-	var i,
-		start = 0,
-		length = args.length,
-		dataTypes = [ "*" ],
-		dLength = 1,
-		dataType,
-		functors = [],
-		first,
-		append,
-		list;
-
-	if ( length ) {
-
-		first = jQuery.type( args[ 0 ] );
-
-		if ( first === "object" ) {
-			return ajax_selectOrExecute( structure , args[ 0 ] );
-		}
-
-		structure = jQuery.ajaxSettings[ structure ];
-
-		if ( first !== "function" ) {
-
-			dataTypes = args[ 0 ].toLowerCase().split(/\s+/);
-			dLength = dataTypes.length;
-			start = 1;
-
-		}
-
-		if ( dLength && start < length ) {
-
-			functors = sliceFunc.call( args , start );
-
-			for( i = 0 ; i < dLength ; i++ ) {
-
-				dataType = dataTypes[ i ];
-
-				first = /^\+/.test( dataType );
-
-				if (first) {
-					dataType = dataType.substr(1);
-				}
-
-				if ( dataType !== "" ) {
-
-					append = Array.prototype[ first ? "unshift" : "push" ];
-					list = structure[ dataType ] = structure[ dataType ] || [];
-					append.apply( list , functors );
-				}
-			}
-		}
-	}
-
-	return jQuery;
-}
-
-// Install prefilter & transport methods
-jQuery.each( [ "Prefilter" , "Transport" ] , function( _ , name ) {
-	_ = name.toLowerCase() + "s";
-	jQuery[ "ajax" + name ] = function() {
-		return ajax_addElement( _ , arguments );
-	};
-} );
-
-// Utility function that handles dataType when response is received
-// (for those transports that can give text or xml responses)
-function determineDataType( s , ct , text , xml ) {
+/* Handles responses to an ajax request:
+ * - sets all responseXXX fields accordingly
+ * - finds the right dataType (mediates between content-type and expected dataType)
+ * - returns the corresponding response
+ */
+function ajaxHandleResponses( s, jXHR, responses ) {
 
 	var contents = s.contents,
-		type,
-		regexp,
 		dataTypes = s.dataTypes,
-		transportDataType = dataTypes[0],
-		response;
+		responseFields = s.responseFields,
+		ct,
+		type,
+		finalDataType,
+		firstDataType;
 
-	// Auto (xml, json, script or text determined given headers)
-	if ( transportDataType === "*" ) {
+	// Fill responseXXX fields
+	for( type in responseFields ) {
+		if ( type in responses ) {
+			jXHR[ responseFields[type] ] = responses[ type ];
+		}
+	}
 
+	// Remove auto dataType and get content-type in the process
+	while( dataTypes[ 0 ] === "*" ) {
+		dataTypes.shift();
+		if ( ct === undefined ) {
+			ct = jXHR.getResponseHeader( "content-type" );
+		}
+	}
+
+	// Check if we're dealing with a known content-type
+	if ( ct ) {
 		for ( type in contents ) {
-			if ( ( regexp = contents[ type ] ) && regexp.test( ct ) ) {
-				transportDataType = dataTypes[0] = type;
+			if ( contents[ type ] && contents[ type ].test( ct ) ) {
+				dataTypes.unshift( type );
 				break;
 			}
 		}
 	}
 
-	// xml and parsed as such
-	if ( transportDataType === "xml" &&
-		xml &&
-		xml.documentElement /* #4958 */ ) {
-
-		response = xml;
-
-	// Text response was provided
+	// Check to see if we have a response for the expected dataType
+	if ( dataTypes[ 0 ] in responses ) {
+		finalDataType = dataTypes[ 0 ];
 	} else {
-
-		response = text;
-
-		// If it's not really text, defer to converters
-		if ( transportDataType !== "text" ) {
-			dataTypes.unshift( "text" );
+		// Try convertible dataTypes
+		for ( type in responses ) {
+			if ( !dataTypes[ 0 ] || s.converters[ type + " " + dataTypes[0] ] ) {
+				finalDataType = type;
+				break;
+			}
+			if ( !firstDataType ) {
+				firstDataType = type;
+			}
 		}
-
+		// Or just use first one
+		finalDataType = finalDataType || firstDataType;
 	}
 
+	// If we found a dataType
+	// We add the dataType to the list if needed
+	// and return the corresponding response
+	if ( finalDataType ) {
+		if ( finalDataType !== dataTypes[ 0 ] ) {
+			dataTypes.unshift( finalDataType );
+		}
+		return responses[ finalDataType ];
+	}
+}
+
+// Chain conversions given the request and the original response
+function ajaxConvert( s, response ) {
+
+	// Apply the dataFilter if provided
+	if ( s.dataFilter ) {
+		response = s.dataFilter( response, s.dataType );
+	}
+
+	var dataTypes = s.dataTypes,
+		converters = s.converters,
+		i,
+		length = dataTypes.length,
+		tmp,
+		// Current and previous dataTypes
+		current = dataTypes[ 0 ],
+		prev,
+		// Conversion expression
+		conversion,
+		// Conversion function
+		conv,
+		// Conversion functions (when text is used in-between)
+		conv1,
+		conv2;
+
+	// For each dataType in the chain
+	for( i = 1; i < length; i++ ) {
+
+		// Get the dataTypes
+		prev = current;
+		current = dataTypes[ i ];
+
+		// If current is auto dataType, update it to prev
+		if( current === "*" ) {
+			current = prev;
+		// If no auto and dataTypes are actually different
+		} else if ( prev !== "*" && prev !== current ) {
+
+			// Get the converter
+			conversion = prev + " " + current;
+			conv = converters[ conversion ] || converters[ "* " + current ];
+
+			// If there is no direct converter, search transitively
+			if ( !conv ) {
+				conv2 = undefined;
+				for( conv1 in converters ) {
+					tmp = conv1.split( " " );
+					if ( tmp[ 0 ] === prev || tmp[ 0 ] === "*" ) {
+						conv2 = converters[ tmp[1] + " " + current ];
+						if ( conv2 ) {
+							conv1 = converters[ conv1 ];
+							if ( conv1 === true ) {
+								conv = conv2;
+							} else if ( conv2 === true ) {
+								conv = conv1;
+							}
+							break;
+						}
+					}
+				}
+			}
+			// If we found no converter, dispatch an error
+			if ( !( conv || conv2 ) ) {
+				jQuery.error( "No conversion from " + conversion.replace(" "," to ") );
+			}
+			// If found converter is not an equivalence
+			if ( conv !== true ) {
+				// Convert with 1 or 2 converters accordingly
+				response = conv ? conv( response ) : conv2( conv1(response) );
+			}
+		}
+	}
 	return response;
 }
-
-/*
- * Create the request object; Microsoft failed to properly
- * implement the XMLHttpRequest in IE7 (can't request local files),
- * so we use the ActiveXObject when it is available
- * Additionally XMLHttpRequest can be disabled in IE7/IE8 so
- * we need a fallback.
- */
-if ( window.ActiveXObject ) {
-	jQuery.ajaxSettings.xhr = function() {
-	if ( window.location.protocol !== "file:" ) {
-		try {
-			return new window.XMLHttpRequest();
-		} catch( xhrError ) {}
-	}
-
-	try {
-		return new window.ActiveXObject("Microsoft.XMLHTTP");
-	} catch( activeError ) {}
-	};
-}
-
-var testXHR = jQuery.ajaxSettings.xhr();
-
-// Does this browser support XHR requests?
-jQuery.support.ajax = !!testXHR;
-
-// Does this browser support crossDomain XHR requests
-jQuery.support.cors = testXHR && "withCredentials" in testXHR;
 
 
 
@@ -6971,12 +6846,12 @@ jQuery.ajaxSetup({
 	jsonpCallback: function() {
 		return "jsonp" + jsc++;
 	}
+});
 
 // Detect, normalize options and install callbacks for jsonp requests
-// (dataIsString is used internally)
-}).ajaxPrefilter("json jsonp", function(s, originalSettings, dataIsString) {
+jQuery.ajaxPrefilter( "json jsonp", function( s, originalSettings, dataIsString /* internal */ ) {
 
-	dataIsString = ( typeof(s.data) === "string" );
+	dataIsString = ( typeof s.data === "string" );
 
 	if ( s.dataTypes[ 0 ] === "jsonp" ||
 		originalSettings.jsonpCallback ||
@@ -7008,23 +6883,25 @@ jQuery.ajaxSetup({
 		s.url = url;
 		s.data = data;
 
-		window [ jsonpCallback ] = function( response ) {
-			responseContainer = [response];
+		window[ jsonpCallback ] = function( response ) {
+			responseContainer = [ response ];
 		};
 
-		s.complete = [function() {
+		s.complete = [ function() {
 
 			// Set callback back to previous value
 			window[ jsonpCallback ] = previous;
 
 			// Call if it was a function and we have a response
 			if ( previous) {
-				if ( responseContainer && jQuery.isFunction ( previous ) ) {
-					window[ jsonpCallback ] ( responseContainer[0] );
+				if ( responseContainer && jQuery.isFunction( previous ) ) {
+					window[ jsonpCallback ] ( responseContainer[ 0 ] );
 				}
 			} else {
 				// else, more memory leak avoidance
-				try{ delete window[ jsonpCallback ]; } catch(e){}
+				try{
+					delete window[ jsonpCallback ];
+				} catch( e ) {}
 			}
 
 		}, s.complete ];
@@ -7043,52 +6920,49 @@ jQuery.ajaxSetup({
 		// Delegate to script
 		return "script";
 	}
-});
+} );
 
 
 
 
 // Install script dataType
 jQuery.ajaxSetup({
-
 	accepts: {
 		script: "text/javascript, application/javascript"
 	},
-
 	contents: {
 		script: /javascript/
 	},
-
 	converters: {
 		"text script": jQuery.globalEval
 	}
+});
 
 // Handle cache's special case and global
-}).ajaxPrefilter("script", function(s) {
-
+jQuery.ajaxPrefilter( "script", function( s ) {
 	if ( s.cache === undefined ) {
 		s.cache = false;
 	}
-
 	if ( s.crossDomain ) {
 		s.type = "GET";
 		s.global = false;
 	}
+} );
 
 // Bind script tag hack transport
-}).ajaxTransport("script", function(s) {
+jQuery.ajaxTransport( "script", function(s) {
 
 	// This transport only deals with cross domain requests
 	if ( s.crossDomain ) {
 
 		var script,
-			head = document.getElementsByTagName("head")[0] || document.documentElement;
+			head = document.getElementsByTagName( "head" )[ 0 ] || document.documentElement;
 
 		return {
 
-			send: function(_, callback) {
+			send: function( _, callback ) {
 
-				script = document.createElement("script");
+				script = document.createElement( "script" );
 
 				script.async = "async";
 
@@ -7099,9 +6973,9 @@ jQuery.ajaxSetup({
 				script.src = s.url;
 
 				// Attach handlers for all browsers
-				script.onload = script.onreadystatechange = function( _ , isAbort ) {
+				script.onload = script.onreadystatechange = function( _, isAbort ) {
 
-					if ( ! script.readyState || /loaded|complete/.test( script.readyState ) ) {
+					if ( !script.readyState || /loaded|complete/.test( script.readyState ) ) {
 
 						// Handle memory leak in IE
 						script.onload = script.onreadystatechange = null;
@@ -7112,10 +6986,10 @@ jQuery.ajaxSetup({
 						}
 
 						// Dereference the script
-						script = 0;
+						script = undefined;
 
 						// Callback if not abort
-						if ( ! isAbort ) {
+						if ( !isAbort ) {
 							callback( 200, "success" );
 						}
 					}
@@ -7127,12 +7001,12 @@ jQuery.ajaxSetup({
 
 			abort: function() {
 				if ( script ) {
-					script.onload(0,1);
+					script.onload( 0, 1 );
 				}
 			}
 		};
 	}
-});
+} );
 
 
 
@@ -7144,178 +7018,210 @@ var // Next active xhr id
 	xhrs = {},
 
 	// #5280: see below
-	xhrUnloadAbortInstalled;
+	xhrUnloadAbortInstalled,
 
+	// XHR used to determine supports properties
+	testXHR;
 
-jQuery.ajaxTransport( function( s , determineDataType ) {
+// Create the request object
+// (This is still attached to ajaxSettings for backward compatibility)
+jQuery.ajaxSettings.xhr = window.ActiveXObject ?
+	/* Microsoft failed to properly
+	 * implement the XMLHttpRequest in IE7 (can't request local files),
+	 * so we use the ActiveXObject when it is available
+	 * Additionally XMLHttpRequest can be disabled in IE7/IE8 so
+	 * we need a fallback.
+	 */
+	function() {
+		if ( window.location.protocol !== "file:" ) {
+			try {
+				return new window.XMLHttpRequest();
+			} catch( xhrError ) {}
+		}
 
-	// Cross domain only allowed if supported through XMLHttpRequest
-	if ( ! s.crossDomain || jQuery.support.cors ) {
+		try {
+			return new window.ActiveXObject("Microsoft.XMLHTTP");
+		} catch( activeError ) {}
+	} :
+	// For all other browsers, use the standard XMLHttpRequest object
+	function() {
+		return new window.XMLHttpRequest();
+	};
 
-		var callback;
+// Test if we can create an xhr object
+try {
+	testXHR = jQuery.ajaxSettings.xhr();
+} catch( xhrCreationException ) {}
 
-		return {
+//Does this browser support XHR requests?
+jQuery.support.ajax = !!testXHR;
 
-			send: function(headers, complete) {
+// Does this browser support crossDomain XHR requests
+jQuery.support.cors = testXHR && ( "withCredentials" in testXHR );
 
-				// #5280: we need to abort on unload or IE will keep connections alive
-				if ( ! xhrUnloadAbortInstalled ) {
+// No need for the temporary xhr anymore
+testXHR = undefined;
 
-					xhrUnloadAbortInstalled = 1;
+// Create transport if the browser can provide an xhr
+if ( jQuery.support.ajax ) {
 
-					jQuery(window).bind( "unload" , function() {
+	jQuery.ajaxTransport(function( s ) {
+		// Cross domain only allowed if supported through XMLHttpRequest
+		if ( !s.crossDomain || jQuery.support.cors ) {
 
-						// Abort all pending requests
-						jQuery.each(xhrs, function(_, xhr) {
-							if ( xhr.onreadystatechange ) {
-								xhr.onreadystatechange( 1 );
-							}
-						});
+			var callback;
 
-					});
-				}
+			return {
+				send: function( headers, complete ) {
 
-				// Get a new xhr
-				var xhr = s.xhr(),
-					handle;
+					// #5280: we need to abort on unload or IE will keep connections alive
+					if ( !xhrUnloadAbortInstalled ) {
 
-				// Open the socket
-				// Passing null username, generates a login popup on Opera (#2865)
-				if ( s.username ) {
-					xhr.open(s.type, s.url, s.async, s.username, s.password);
-				} else {
-					xhr.open(s.type, s.url, s.async);
-				}
+						xhrUnloadAbortInstalled = 1;
 
-				// Requested-With header
-				// Not set for crossDomain requests with no content
-				// (see why at http://trac.dojotoolkit.org/ticket/9486)
-				// Won't change header if already provided
-				if ( ! ( s.crossDomain && ! s.hasContent ) && ! headers["x-requested-with"] ) {
-					headers["x-requested-with"] = "XMLHttpRequest";
-				}
+						jQuery(window).bind( "unload", function() {
 
-				// Need an extra try/catch for cross domain requests in Firefox 3
-				try {
+							// Abort all pending requests
+							jQuery.each( xhrs, function( _, xhr ) {
+								if ( xhr.onreadystatechange ) {
+									xhr.onreadystatechange( 1 );
+								}
+							} );
 
-					jQuery.each(headers, function(key,value) {
-						xhr.setRequestHeader(key,value);
-					});
-
-				} catch(_) {}
-
-				// Do send the request
-				try {
-					xhr.send( ( s.hasContent && s.data ) || null );
-				} catch(e) {
-					complete(0, "error", "" + e);
-					return;
-				}
-
-				// Listener
-				callback = function( _ , isAbort ) {
-
-					// Was never called and is aborted or complete
-					if ( callback && ( isAbort || xhr.readyState === 4 ) ) {
-
-						// Only called once
-						callback = 0;
-
-						// Do not keep as active anymore
-						// and store back into pool
-						if (handle) {
-							xhr.onreadystatechange = jQuery.noop;
-							delete xhrs[ handle ];
-						}
-
-						// If it's an abort
-						if ( isAbort ) {
-
-							// Abort it manually if needed
-							if ( xhr.readyState !== 4 ) {
-								xhr.abort();
-							}
-						} else {
-
-							// Get info
-							var status = xhr.status,
-								statusText,
-								response,
-								responseHeaders = xhr.getAllResponseHeaders();
-
-							try { // Firefox throws an exception when accessing statusText for faulty cross-domain requests
-
-								statusText = xhr.statusText;
-
-							} catch( e ) {
-
-								statusText = ""; // We normalize with Webkit giving an empty statusText
-
-							}
-
-							// Filter status for non standard behaviours
-							// (so many they seem to be the actual "standard")
-							status =
-								// Opera returns 0 when it should be 304
-								// Webkit returns 0 for failing cross-domain no matter the real status
-								status === 0 ?
-									(
-										! s.crossDomain || statusText ? // Webkit, Firefox: filter out faulty cross-domain requests
-										(
-											responseHeaders ? // Opera: filter out real aborts #6060
-											304
-											:
-											0
-										)
-										:
-										302 // We assume 302 but could be anything cross-domain related
-									)
-									:
-									(
-										status == 1223 ?	// IE sometimes returns 1223 when it should be 204 (see #1450)
-											204
-											:
-											status
-									);
-
-							// Guess response & update dataType accordingly
-							response =
-								determineDataType(
-									s,
-									xhr.getResponseHeader("content-type"),
-									xhr.responseText,
-									xhr.responseXML );
-
-							// Call complete
-							complete(status,statusText,response,responseHeaders);
-						}
+						} );
 					}
-				};
 
-				// if we're in sync mode
-				// or it's in cache and has been retrieved directly (IE6 & IE7)
-				// we need to manually fire the callback
-				if ( ! s.async || xhr.readyState === 4 ) {
+					// Get a new xhr
+					var xhr = s.xhr(),
+						handle;
 
-					callback();
+					// Open the socket
+					// Passing null username, generates a login popup on Opera (#2865)
+					if ( s.username ) {
+						xhr.open( s.type, s.url, s.async, s.username, s.password );
+					} else {
+						xhr.open( s.type, s.url, s.async );
+					}
 
-				} else {
+					// Requested-With header
+					// Not set for crossDomain requests with no content
+					// (see why at http://trac.dojotoolkit.org/ticket/9486)
+					// Won't change header if already provided
+					if ( !( s.crossDomain && !s.hasContent ) && !headers["x-requested-with"] ) {
+						headers[ "x-requested-with" ] = "XMLHttpRequest";
+					}
 
-					// Add to list of active xhrs
-					handle = xhrId++;
-					xhrs[ handle ] = xhr;
-					xhr.onreadystatechange = callback;
+					// Need an extra try/catch for cross domain requests in Firefox 3
+					try {
+						jQuery.each( headers, function( key, value ) {
+							xhr.setRequestHeader( key, value );
+						} );
+					} catch( _ ) {}
+
+					// Do send the request
+					try {
+						xhr.send( ( s.hasContent && s.data ) || null );
+					} catch( e ) {
+						complete( 0, "error", "" + e );
+						return;
+					}
+
+					// Listener
+					callback = function( _, isAbort ) {
+
+						// Was never called and is aborted or complete
+						if ( callback && ( isAbort || xhr.readyState === 4 ) ) {
+
+							// Only called once
+							callback = 0;
+
+							// Do not keep as active anymore
+							if ( handle ) {
+								xhr.onreadystatechange = jQuery.noop;
+								delete xhrs[ handle ];
+							}
+
+							// If it's an abort
+							if ( isAbort ) {
+								// Abort it manually if needed
+								if ( xhr.readyState !== 4 ) {
+									xhr.abort();
+								}
+							} else {
+								// Get info
+								var status = xhr.status,
+									statusText,
+									responseHeaders = xhr.getAllResponseHeaders(),
+									responses = {},
+									xml = xhr.responseXML;
+
+								// Construct response list
+								if ( xml && xml.documentElement /* #4958 */ ) {
+									responses.xml = xml;
+								}
+								responses.text = xhr.responseText;
+
+								// Firefox throws an exception when accessing
+								// statusText for faulty cross-domain requests
+								try {
+									statusText = xhr.statusText;
+								} catch( e ) {
+									// We normalize with Webkit giving an empty statusText
+									statusText = "";
+								}
+
+								// Filter status for non standard behaviours
+								status =
+									// Opera returns 0 when it should be 304
+									// Webkit returns 0 for failing cross-domain no matter the real status
+									status === 0 ?
+										(
+											// Webkit, Firefox: filter out faulty cross-domain requests
+											!s.crossDomain || statusText ?
+											(
+												// Opera: filter out real aborts #6060
+												responseHeaders ?
+												304 :
+												0
+											) :
+											// We assume 302 but could be anything cross-domain related
+											302
+										) :
+										(
+											// IE sometimes returns 1223 when it should be 204 (see #1450)
+											status == 1223 ?
+												204 :
+												status
+										);
+
+								// Call complete
+								complete( status, statusText, responses, responseHeaders );
+							}
+						}
+					};
+
+					// if we're in sync mode or it's in cache
+					// and has been retrieved directly (IE6 & IE7)
+					// we need to manually fire the callback
+					if ( !s.async || xhr.readyState === 4 ) {
+						callback();
+					} else {
+						// Add to list of active xhrs
+						handle = xhrId++;
+						xhrs[ handle ] = xhr;
+						xhr.onreadystatechange = callback;
+					}
+				},
+
+				abort: function() {
+					if ( callback ) {
+						callback(0,1);
+					}
 				}
-			},
-
-			abort: function() {
-				if ( callback ) {
-					callback(0,1);
-				}
-			}
-		};
-	}
-});
+			};
+		}
+	});
+}
 
 
 
